@@ -1,0 +1,57 @@
+trigger:
+  branches:
+    include:
+      - main
+
+schedules:
+  - cron: "0 0 * * *"
+    displayName: "Daily Drift Detection"
+    branches:
+      include:
+        - main
+
+jobs:
+  - job: DriftDetection
+    displayName: "Detect Drift in Terraform Infrastructure"
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+      - task: TerraformInstaller@1
+        inputs:
+          terraformVersion: 'latest'
+
+      - script: |
+          terraform init
+          terraform plan -out=tfplan.out
+        displayName: 'Run Terraform Plan'
+
+      - script: |
+          terraform show -json tfplan.out | jq '.resource_changes' > drift_changes.json
+        displayName: 'Check for Drift'
+
+      - task: AzureCLI@2
+        inputs:
+          azureSubscription: 'YourAzureSubscription'
+          scriptType: 'bash'
+          scriptLocation: 'inlineScript'
+          inlineScript: |
+            if [ -s drift_changes.json ]; then
+              echo "Drift detected!"
+              # Trigger Logic App or send an email alert for approval
+            else
+              echo "No drift detected."
+            fi
+        displayName: 'Alert for Drift Detection'
+
+      - task: ManualValidation@0
+        inputs:
+          instructions: 'Please approve to update Terraform state file.'
+        displayName: 'Approval for Drift Fix'
+
+      - script: |
+          terraform refresh
+        displayName: 'Refresh Terraform State File After Approval'
+
+      - script: |
+          terraform apply -auto-approve
+        displayName: 'Apply Changes After Refresh'
