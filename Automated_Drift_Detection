@@ -16,19 +16,29 @@ jobs:
     pool:
       vmImage: 'ubuntu-latest'
     steps:
+      # Set up Terraform backend before running Terraform commands
       - task: TerraformInstaller@1
         inputs:
           terraformVersion: 'latest'
 
+      # Initialize Terraform with backend
       - script: |
-          terraform init
+          terraform init -backend-config="storage_account_name=yourstorageaccountname" \
+                         -backend-config="container_name=yourcontainername" \
+                         -backend-config="key=terraform.tfstate"
+        displayName: 'Initialize Terraform with Backend'
+
+      # Run Terraform plan to detect drift
+      - script: |
           terraform plan -out=tfplan.out
         displayName: 'Run Terraform Plan'
 
+      # Check if drift exists and output the result
       - script: |
           terraform show -json tfplan.out | jq '.resource_changes' > drift_changes.json
         displayName: 'Check for Drift'
 
+      # If drift is detected, send a notification (Azure Logic App or email)
       - task: AzureCLI@2
         inputs:
           azureSubscription: 'YourAzureSubscription'
@@ -43,15 +53,18 @@ jobs:
             fi
         displayName: 'Alert for Drift Detection'
 
+      # Approval step - user has to approve before applying changes
       - task: ManualValidation@0
         inputs:
           instructions: 'Please approve to update Terraform state file.'
         displayName: 'Approval for Drift Fix'
 
+      # After approval, run terraform refresh to update the state file
       - script: |
           terraform refresh
         displayName: 'Refresh Terraform State File After Approval'
 
+      # Optionally, apply changes after refresh if needed
       - script: |
           terraform apply -auto-approve
         displayName: 'Apply Changes After Refresh'
